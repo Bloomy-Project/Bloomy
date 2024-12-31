@@ -5,6 +5,8 @@ from pathlib import Path
 import discord
 from discord.ext import commands
 
+from bloomy._logger import BloomyStreamHandler, BloomyFileHandler
+
 log = getLogger(__name__)
 
 
@@ -22,6 +24,33 @@ class Bloomy(object):
             command_prefix=[],
             intents=discord.Intents.all(),
         )
+        #
+        self.log_stream_handler = None  # type: BloomyStreamHandler | None
+        self.log_file_handler = None  # type: BloomyFileHandler | None
+
+    def setup_loggers(self, *names: str, file_out=True):
+        if self.log_stream_handler is None:
+            self.log_stream_handler = BloomyStreamHandler()
+
+        if self.log_file_handler is None and file_out:
+            self.log_file_handler = BloomyFileHandler(self.logs_dir / "latest.log")
+
+        self.update_logger_level()
+
+        for name in names:
+            _log = getLogger(name)
+            _log.setLevel(-1)
+            _log.addHandler(self.log_stream_handler)
+            if file_out:
+                _log.addHandler(self.log_file_handler)
+
+    def update_logger_level(self):
+        if handler := self.log_stream_handler:
+            handler.setLevel(self.config.log_level.upper())
+        if handler := self.log_file_handler:
+            handler.setLevel(self.config.file_log_level.upper())
+
+    #
 
     async def start(self):
         log.debug("on initializing")
