@@ -49,6 +49,7 @@ class Bloomy(object):
         asyncio.create_task(_on_connect())
 
         log.debug("Connecting to Discord...")
+        import os
         await self.bot.start(token=os.environ["TOKEN"])  # TODO: load from config
 
     async def load_plugins(self):
