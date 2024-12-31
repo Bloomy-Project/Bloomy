@@ -34,6 +34,7 @@ class Bloomy(object):
 
         async def _on_connect():
             await self.bot.wait_until_ready()
+            await self.bot.tree.sync(guild=discord.Object(id=1319681052981330020))
             log.info(f"Connected to Discord: {self.bot.user}")
 
             guilds = self.bot.guilds
@@ -48,7 +49,6 @@ class Bloomy(object):
         asyncio.create_task(_on_connect())
 
         log.debug("Connecting to Discord...")
-        import os
         await self.bot.start(token=os.environ["TOKEN"])  # TODO: load from config
 
     async def load_plugins(self):
