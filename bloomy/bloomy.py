@@ -6,24 +6,34 @@ import discord
 from discord.ext import commands
 
 from bloomy._logger import BloomyStreamHandler, BloomyFileHandler
+from bloomy.config import DictConfig
 
 log = getLogger(__name__)
 
 
+class BloomyConfig(DictConfig):
+    token: str
+    owner_id: int | None
+    log_level: str = "debug"
+    file_log_level: str = "info"
+    command_prefix: str | None = None
+
+
 class Bloomy(object):
+    bot: commands.Bot  # delay init
+
     def __init__(
         self, *,
         loop: asyncio.AbstractEventLoop,
         logs_dir: str = "logs/",
         plugins_dir: str = "plugins/",
+        config_file: str = "config/config.yml",
     ):
         self.logs_dir = Path(logs_dir)
         self.plugins_dir = Path(plugins_dir)
+        self.config_file = Path(config_file)
         self.loop = loop
-        self.bot = commands.Bot(
-            command_prefix=[],
-            intents=discord.Intents.all(),
-        )
+        self.config = BloomyConfig.create_yaml(self.config_file)
         #
         self.log_stream_handler = None  # type: BloomyStreamHandler | None
         self.log_file_handler = None  # type: BloomyFileHandler | None
@@ -55,8 +65,17 @@ class Bloomy(object):
     async def start(self):
         log.debug("on initializing")
         self.logs_dir.mkdir(parents=True, exist_ok=True)
+        self.config_file.parent.mkdir(parents=True, exist_ok=True)
         self.plugins_dir.mkdir(parents=True, exist_ok=True)
 
+        self.config.load_file()
+        self.update_logger_level()
+
+        self.bot = commands.Bot(
+            command_prefix=[self.config.command_prefix] if self.config.command_prefix else ["!"],
+            owner_ids=[self.config.owner_id] if self.config.owner_id else [],
+            intents=discord.Intents.all(),
+        )
         self._event_handling(self.bot)
         log.debug("Loading plugins")
         await self.load_plugins()
@@ -78,8 +97,7 @@ class Bloomy(object):
         asyncio.create_task(_on_connect())
 
         log.debug("Connecting to Discord...")
-        import os
-        await self.bot.start(token=os.environ["TOKEN"])  # TODO: load from config
+        await self.bot.start(token=self.config.token)
 
     async def load_plugins(self):
         names = []
