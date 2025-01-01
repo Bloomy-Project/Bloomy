@@ -40,7 +40,7 @@ class Bloomy(object):
         self.config_file = Path(config_file)
         self.loop = loop
         self.config = BloomyConfig.create_yaml(self.config_file)
-        self.owners = {}  # type: dict[int, discord.User]
+        self.owners = {}  # type: dict[int, discord.User | None]
         #
         self.log_stream_handler = None  # type: BloomyStreamHandler | None
         self.log_file_handler = None  # type: BloomyFileHandler | None
