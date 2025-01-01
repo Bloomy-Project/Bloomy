@@ -40,6 +40,7 @@ class Bloomy(object):
         self.config_file = Path(config_file)
         self.loop = loop
         self.config = BloomyConfig.create_yaml(self.config_file)
+        self.owners = {}  # type: dict[int, discord.User]
         #
         self.log_stream_handler = None  # type: BloomyStreamHandler | None
         self.log_file_handler = None  # type: BloomyFileHandler | None
@@ -88,8 +89,14 @@ class Bloomy(object):
 
         async def _on_connect():
             await self.bot.wait_until_ready()
-            await self.bot.tree.sync(guild=discord.Object(id=1319681052981330020))
             log.info(f"Connected to Discord: {self.bot.user}")
+
+            try:
+                owners = await self.update_owners()
+            except Exception as e:
+                log.warning(f"Exception in update_owners: {e}", exc_info=e)
+                owners = {self.config.owner_id: None}
+            log.info("Owners: %s", ", ".join([str(v or k) for k, v in owners.items()]))
 
             guilds = self.bot.guilds
             log.info("")
@@ -99,6 +106,9 @@ class Bloomy(object):
             else:
                 log.info("  No joined guilds")
             log.info("")
+
+            await self.bot.tree.sync()
+            log.info("Tree Sync completed")
 
         asyncio.create_task(_on_connect())
 
@@ -130,3 +140,18 @@ class Bloomy(object):
 
     def _event_handling(self, bot: commands.Bot):
         pass
+
+    async def update_owners(self):
+        log.debug("updating owner users")
+        self.owners.clear()
+        owners = {}
+        if owner_id := self.config.owner_id:
+            if not (owner := self.bot.get_user(owner_id)):
+                try:
+                    owner = await self.bot.fetch_user(owner_id)
+                except discord.HTTPException:
+                    pass  # ignore
+            if owner:
+                self.owners[owner_id] = owner
+            owners[owner_id] = owner
+        return owners
