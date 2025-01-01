@@ -9,6 +9,10 @@ from bloomy._logger import BloomyStreamHandler, BloomyFileHandler
 from bloomy.config import DictConfig
 
 log = getLogger(__name__)
+__all__ = [
+    "BloomyConfig",
+    "Bloomy",
+]
 
 
 class BloomyConfig(DictConfig):
@@ -20,6 +24,7 @@ class BloomyConfig(DictConfig):
 
 
 class Bloomy(object):
+    _inst: "Bloomy"
     bot: commands.Bot  # delay init
 
     def __init__(
@@ -29,6 +34,7 @@ class Bloomy(object):
         plugins_dir: str = "plugins/",
         config_file: str = "config/config.yml",
     ):
+        Bloomy._inst = self  # singleton
         self.logs_dir = Path(logs_dir)
         self.plugins_dir = Path(plugins_dir)
         self.config_file = Path(config_file)
