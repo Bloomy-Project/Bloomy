@@ -70,7 +70,7 @@ class Bloomy(object):
 
     #
 
-    async def start(self):
+    async def init(self):
         log.debug("on initializing")
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         self.config_file.parent.mkdir(parents=True, exist_ok=True)
@@ -88,33 +88,74 @@ class Bloomy(object):
         log.debug("Loading plugins")
         await self.load_plugins()
 
-        async def _on_connect():
-            await self.bot.wait_until_ready()
-            log.info(f"Connected to Discord: {self.bot.user}")
+        log.info("Initialized Bloomy!")
 
-            try:
-                owners = await self.update_owners()
-            except Exception as e:
-                log.warning(f"Exception in update_owners: {e}", exc_info=e)
-                owners = {self.config.owner_id: None}
-            log.info("Owners: %s", ", ".join([str(v or k) for k, v in owners.items()]))
+    async def on_connect(self):
+        await self.bot.wait_until_ready()
+        log.info(f"Connected to Discord: {self.bot.user}")
 
-            guilds = self.bot.guilds
-            log.info("")
-            if guilds:
-                for guild in guilds:
-                    log.info(f"- {guild.id}/{guild.name} - {guild.owner or guild.owner_id}")
-            else:
-                log.info("  No joined guilds")
-            log.info("")
+        try:
+            owners = await self.update_owners_cache()
+        except Exception as e:
+            log.warning(f"Exception in update_owners: {e}", exc_info=e)
+            owners = {self.config.owner_id: None}
+        log.info("Owners: %s", ", ".join([str(v or k) for k, v in owners.items()]))
 
-            await self.bot.tree.sync()
-            log.info("Tree Sync completed")
+        guilds = self.bot.guilds
+        log.info("")
+        if guilds:
+            for guild in guilds:
+                log.info(f"- {guild.id}/{guild.name} - {guild.owner or guild.owner_id}")
+        else:
+            log.info("  No joined guilds")
+        log.info("")
 
-        asyncio.create_task(_on_connect())
+        sync_task = self.loop.create_task(self.bot.tree.sync())
+        try:
+            await asyncio.wait_for(asyncio.shield(sync_task), timeout=3)
+        except asyncio.TimeoutError:
+            log.warning("Syncing application commands... (waiting)")
+        await sync_task
+        log.debug("Synced application commands")
 
+    async def run(self):
+        try:
+            bot = self.bot
+        except AttributeError:
+            raise RuntimeError("Bloomy is not initialized") from None
         log.debug("Connecting to Discord...")
-        await self.bot.start(token=self.config.token)
+        asyncio.create_task(self.on_connect())
+        await bot.start(token=self.config.token)
+
+    async def shutdown(self):
+        if bot := self.bot:
+            await bot.close()
+
+    async def cleanup(self):
+        log.info("Cleanup Bloomy")
+        if bot := self.bot:
+            log.debug("Unloading extensions")
+            for cog_name in list(bot.cogs):
+                try:
+                    await bot.remove_cog(cog_name)
+                except Exception as e:
+                    log.exception("Exception in remove cog: %s", cog_name, exc_info=e)
+
+            for extension_name in list(bot.extensions):
+                try:
+                    await bot.unload_extension(extension_name)
+                except Exception as e:
+                    log.exception("Exception in unload extension: %s", extension_name, exc_info=e)
+
+            if not bot.is_closed():
+                log.debug("Closing discord bot")
+                try:
+                    await bot.close()
+                except Exception as e:
+                    log.warning(f"Failed to close bot: {e}")
+            bot.clear()
+
+        del self.bot
 
     async def load_plugins(self):
         names = []
@@ -139,20 +180,19 @@ class Bloomy(object):
 
         log.info(f"Loaded %d plugins: %s", len(names), ", ".join(names))
 
+    #
+
     def _event_handling(self, bot: commands.Bot):
         pass
 
-    async def update_owners(self):
-        log.debug("updating owner users")
+    async def update_owners_cache(self):
+        log.debug("Updating owners cache")
         self.owners.clear()
-        owners = {}
         if owner_id := self.config.owner_id:
             if not (owner := self.bot.get_user(owner_id)):
                 try:
                     owner = await self.bot.fetch_user(owner_id)
                 except discord.HTTPException:
                     pass  # ignore
-            if owner:
-                self.owners[owner_id] = owner
-            owners[owner_id] = owner
-        return owners
+            self.owners[owner_id] = owner
+        return self.owners
