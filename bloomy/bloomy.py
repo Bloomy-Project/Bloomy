@@ -27,6 +27,7 @@ class Bloomy(object):
     _inst: "Bloomy"
     bot: commands.Bot  # delay init
 
+
     def __init__(
         self, *,
         loop: asyncio.AbstractEventLoop,
