@@ -131,7 +131,9 @@ class Bloomy(object):
 
         # noinspection PyTypeChecker
         signal.signal(signal.SIGTERM, lambda *_: self.loop.create_task(self.shutdown()))
-        signal.signal(signal.SIGINT, lambda *_: self.loop.create_task(self.shutdown()))
+        signal.signal(signal.SIGINT, lambda _, __: self.loop.create_task(self.shutdown()))
+        if hasattr(signal, "SIGBREAK"):
+            signal.signal(signal.SIGBREAK, lambda _, __: self.loop.create_task(self.shutdown()))
         asyncio.create_task(self.on_connect())
         await bot.start(token=self.config.token)
 
