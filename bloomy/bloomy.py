@@ -1,4 +1,5 @@
 import asyncio
+import signal
 from logging import getLogger
 from pathlib import Path
 
@@ -7,6 +8,7 @@ from discord.ext import commands
 
 from bloomy._logger import BloomyStreamHandler, BloomyFileHandler
 from bloomy.config import DictConfig
+from bloomy.plugin import PluginManager
 
 log = getLogger(__name__)
 __all__ = [
@@ -40,6 +42,7 @@ class Bloomy(object):
         self.plugins_dir = Path(plugins_dir)
         self.config_file = Path(config_file)
         self.loop = loop
+        self.plugin_manager = PluginManager()
         self.config = BloomyConfig.create_yaml(self.config_file)
         self.owners = {}  # type: dict[int, discord.User | None]
         #
@@ -86,7 +89,7 @@ class Bloomy(object):
         )
         self._event_handling(self.bot)
         log.debug("Loading plugins")
-        await self.load_plugins()
+        await self.plugin_manager.load_plugins(self.bot)
 
         log.info("Initialized Bloomy!")
 
@@ -118,12 +121,17 @@ class Bloomy(object):
         await sync_task
         log.debug("Synced application commands")
 
+
     async def run(self):
         try:
             bot = self.bot
         except AttributeError:
             raise RuntimeError("Bloomy is not initialized") from None
         log.debug("Connecting to Discord...")
+
+        # noinspection PyTypeChecker
+        signal.signal(signal.SIGTERM, lambda *_: self.loop.create_task(self.shutdown()))
+        signal.signal(signal.SIGINT, lambda *_: self.loop.create_task(self.shutdown()))
         asyncio.create_task(self.on_connect())
         await bot.start(token=self.config.token)
 
@@ -157,30 +165,7 @@ class Bloomy(object):
 
         del self.bot
 
-    async def load_plugins(self):
-        names = []
-        for child in self.plugins_dir.iterdir():  # type: Path
-            if child.name.startswith(("_", ".", )):
-                continue
 
-            if child.is_file() and child.suffix == ".py":
-                name = child.name.split(".")[0]
-            elif child.is_dir() and child.suffix != ".bak":
-                name = child.name
-            else:
-                continue
-
-            try:
-                await self.bot.load_extension(f"plugins.{name}")
-            except Exception as e:
-                log.warning("Error in load extension: %s", name, exc_info=e)
-                continue
-
-            names.append(name)
-
-        log.info(f"Loaded %d plugins: %s", len(names), ", ".join(names))
-
-    #
 
     def _event_handling(self, bot: commands.Bot):
         pass
