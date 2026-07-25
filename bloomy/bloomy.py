@@ -8,8 +8,8 @@ from discord.ext import commands
 
 from bloomy._logger import BloomyStreamHandler, BloomyFileHandler
 from bloomy.config import DictConfig
+from bloomy.database import DatabaseManager
 from bloomy.plugin import PluginManager
-from bloomy.database import DatabaseManager  # 追加
 
 log = getLogger(__name__)
 __all__ = [
@@ -24,7 +24,7 @@ class BloomyConfig(DictConfig):
     log_level: str = "debug"
     file_log_level: str = "info"
     command_prefix: str | None = None
-    db_path: str = "data/database.db"  # 追加：データベースのデフォルトの保存パス
+    database_url: str = "sqlite+aiosqlite:///data/database.db"
 
 
 class Bloomy(object):
@@ -37,11 +37,13 @@ class Bloomy(object):
         logs_dir: str = "logs/",
         plugins_dir: str = "plugins/",
         config_file: str = "config/config.yml",
+        data_dir: str = "data/",
     ):
         Bloomy._inst = self  # singleton
         self.logs_dir = Path(logs_dir)
         self.plugins_dir = Path(plugins_dir)
         self.config_file = Path(config_file)
+        self.data_dir = Path(data_dir)
         self.loop = loop
         self.plugin_manager = PluginManager()
         self.config = BloomyConfig.create_yaml(self.config_file)
@@ -52,7 +54,7 @@ class Bloomy(object):
 
         # 追加：設定ファイル読み込み前に、パスプレースホルダーでDatabaseManagerを初期化
         # パスは init() 内で config.load_file() が呼ばれた後に正確に解決されます
-        self.db = DatabaseManager(Path(self.config.db_path))
+        self.db = DatabaseManager()
 
     def setup_loggers(self, *names: str, file_out=True):
         if self.log_stream_handler is None:
@@ -83,13 +85,12 @@ class Bloomy(object):
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         self.config_file.parent.mkdir(parents=True, exist_ok=True)
         self.plugins_dir.mkdir(parents=True, exist_ok=True)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
 
         self.config.load_file()
         self.update_logger_level()
 
-        # 追加：設定ファイルからパスを再反映し、データベースに接続
-        self.db.db_path = Path(self.config.db_path)
-        await self.db.connect()
+        await self.db.connect(self.config.database_url)
 
         self.bot = commands.Bot(
             command_prefix=[self.config.command_prefix] if self.config.command_prefix else ["!"],

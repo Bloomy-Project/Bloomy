@@ -1,10 +1,13 @@
-import zipfile
-from pathlib import Path
 from logging import getLogger
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 from discord.ext.commands import Cog, Bot
 
 from bloomy.util import getbloomy
+
+if TYPE_CHECKING:
+    from .database import DatabaseManager
 
 log = getLogger(__name__)
 __all__ = [
@@ -17,13 +20,17 @@ class BloomyCog(Cog):
     def bloomy(self):
         return getbloomy()
 
-class PluginManager():
-    def __init__(
-            self,
-            plugins_dir: str = "plugins/",
-            extensions_dir: str = "extensions/"
-    ):
+    @property
+    def database(self) -> "DatabaseManager":
+        return self.bloomy.database
 
+
+class PluginManager(object):
+    def __init__(
+        self,
+        plugins_dir: str = "plugins/",
+        extensions_dir: str = "extensions/"
+    ):
         self.plugins_dir = Path(plugins_dir)
     
     async def load_plugins(self, bot: Bot):

@@ -196,11 +196,12 @@ class DictConfig(dict):
         try:
             fields = super().__getattribute__("_fields")
         except AttributeError:
-            return super().__setattr__(key, value)
+            super().__setattr__(key, value)
 
-        try:
-            field = fields[key]
-        except KeyError:
-            raise AttributeError(f"Unknown config key: {key!r}")
+        else:
+            try:
+                field = fields[key]
+            except KeyError:
+                raise AttributeError(f"Unknown config key: {key!r}")
 
-        self[key] = field.check_value_type(value)
+            self[key] = field.check_value_type(value)
