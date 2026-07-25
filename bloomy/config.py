@@ -57,14 +57,14 @@ class DictConfigFileYaml(DictConfigFile):
 
             _new_data[key] = value
 
+        config.clear()
+        config.update(_new_data)
+
         if _save_file and create_default_file:
             self.save_file(config, fields)
 
         if _invalid_values:
             raise KeyError("Invalid configuration values: " + ", ".join(_invalid_values))
-
-        config.clear()
-        config.update(_new_data)
 
     def save_file(self, config: "DictConfig", fields: dict[str, Any], *, ignore_no_set=True):
         self.path.parent.mkdir(parents=True, exist_ok=True)
