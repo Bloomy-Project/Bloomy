@@ -7,6 +7,7 @@ from discord.ext.commands import Cog, Bot
 from bloomy.util import getbloomy
 
 if TYPE_CHECKING:
+    from .bloomy import Bloomy
     from .database import DatabaseManager
 
 log = getLogger(__name__)
@@ -17,12 +18,12 @@ __all__ = [
 
 class BloomyCog(Cog):
     @property
-    def bloomy(self):
+    def bloomy(self) -> "Bloomy":
         return getbloomy()
 
     @property
     def database(self) -> "DatabaseManager":
-        return self.bloomy.database
+        return self.bloomy.db
 
 
 class PluginManager(object):
