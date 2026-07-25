@@ -9,6 +9,7 @@ from discord.ext import commands
 from bloomy._logger import BloomyStreamHandler, BloomyFileHandler
 from bloomy.config import DictConfig
 from bloomy.plugin import PluginManager
+from bloomy.database import DatabaseManager  # 追加
 
 log = getLogger(__name__)
 __all__ = [
@@ -23,12 +24,12 @@ class BloomyConfig(DictConfig):
     log_level: str = "debug"
     file_log_level: str = "info"
     command_prefix: str | None = None
+    db_path: str = "data/database.db"  # 追加：データベースのデフォルトの保存パス
 
 
 class Bloomy(object):
     _inst: "Bloomy"
     bot: commands.Bot  # delay init
-
 
     def __init__(
         self, *,
@@ -48,6 +49,10 @@ class Bloomy(object):
         #
         self.log_stream_handler = None  # type: BloomyStreamHandler | None
         self.log_file_handler = None  # type: BloomyFileHandler | None
+
+        # 追加：設定ファイル読み込み前に、パスプレースホルダーでDatabaseManagerを初期化
+        # パスは init() 内で config.load_file() が呼ばれた後に正確に解決されます
+        self.db = DatabaseManager(Path(self.config.db_path))
 
     def setup_loggers(self, *names: str, file_out=True):
         if self.log_stream_handler is None:
@@ -81,6 +86,10 @@ class Bloomy(object):
 
         self.config.load_file()
         self.update_logger_level()
+
+        # 追加：設定ファイルからパスを再反映し、データベースに接続
+        self.db.db_path = Path(self.config.db_path)
+        await self.db.connect()
 
         self.bot = commands.Bot(
             command_prefix=[self.config.command_prefix] if self.config.command_prefix else ["!"],
@@ -121,7 +130,6 @@ class Bloomy(object):
         await sync_task
         log.debug("Synced application commands")
 
-
     async def run(self):
         try:
             bot = self.bot
@@ -143,6 +151,13 @@ class Bloomy(object):
 
     async def cleanup(self):
         log.info("Cleanup Bloomy")
+
+        # 追加：データベース接続を安全に閉じる
+        try:
+            await self.db.close()
+        except Exception as e:
+            log.exception("Exception in db.close", exc_info=e)
+
         if bot := self.bot:
             log.debug("Unloading extensions")
             for cog_name in list(bot.cogs):
@@ -166,8 +181,6 @@ class Bloomy(object):
             bot.clear()
 
         del self.bot
-
-
 
     def _event_handling(self, bot: commands.Bot):
         pass
