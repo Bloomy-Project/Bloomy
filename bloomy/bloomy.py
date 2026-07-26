@@ -41,11 +41,10 @@ class Bloomy(object):
     ):
         Bloomy._inst = self  # singleton
         self.logs_dir = Path(logs_dir)
-        self.plugins_dir = Path(plugins_dir)
         self.config_file = Path(config_file)
         self.data_dir = Path(data_dir)
         self.loop = loop
-        self.plugin_manager = PluginManager()
+        self.plugin_manager = PluginManager(plugins_dir, data_dir=data_dir)
         self.config = BloomyConfig.create_yaml(self.config_file)
         self.owners = {}  # type: dict[int, discord.User | None]
         #
@@ -84,7 +83,6 @@ class Bloomy(object):
         log.debug("on initializing")
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         self.config_file.parent.mkdir(parents=True, exist_ok=True)
-        self.plugins_dir.mkdir(parents=True, exist_ok=True)
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
         self.config.load_file()

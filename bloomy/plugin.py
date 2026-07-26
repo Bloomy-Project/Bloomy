@@ -19,22 +19,42 @@ __all__ = [
 class BloomyCog(Cog):
     @property
     def bloomy(self) -> "Bloomy":
+        """
+        Bloomy 内部インスタンスを返します
+        これらのアクセスは将来的に更新などで互換性がなくなる場合がある点に注意が必要です
+        """
         return getbloomy()
 
     @property
     def database(self) -> "DatabaseManager":
+        """
+        Bloomy データベースを返します
+        これは Bloomy や他のプラグインと共有します。
+        """
         return self.bloomy.db
+
+    @property
+    def data_dir(self) -> Path:
+        """
+        プラグインのデータフォルダのパスを返します
+        プラグインのモジュール名が testplugin なら ./data/testplugin というパスになります
+        """
+        return self.bloomy.plugin_manager.get_data_dir(self)
 
 
 class PluginManager(object):
     def __init__(
         self,
         plugins_dir: str = "plugins/",
-        extensions_dir: str = "extensions/"
+        extensions_dir: str = "extensions/",
+        data_dir: str = "data/",
     ):
         self.plugins_dir = Path(plugins_dir)
+        self.data_dir = Path(data_dir)
     
     async def load_plugins(self, bot: Bot):
+        self.plugins_dir.mkdir(parents=True, exist_ok=True)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
         names = []
         for child in self.plugins_dir.iterdir():  # type: Path
             if child.name.startswith(("_", ".", )):
@@ -56,3 +76,9 @@ class PluginManager(object):
             names.append(name)
 
         log.info(f"Loaded %d plugins: %s", len(names), ", ".join(names))
+
+    def get_data_dir(self, cog: Cog):
+        if not cog.__module__.startswith("plugins."):
+            raise ValueError(f"Invalid module name, {cog!r} is not a plugin.")
+        mod_name = cog.__module__.split(".")[1]
+        return self.data_dir / mod_name

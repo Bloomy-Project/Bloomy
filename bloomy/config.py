@@ -28,7 +28,7 @@ class DictConfigFileYaml(DictConfigFile):
     yaml = _yaml
 
     def __init__(self, path: str | Path):
-        self.path = path
+        self.path = Path(path)
         self._data = {}
 
     def load_file(self, config: "DictConfig", fields: dict[str, Any], *, create_default_file=True):
@@ -157,7 +157,7 @@ class DictConfig(dict):
     def create_yaml(cls, file_path: str | Path) -> Self:
         return cls(file_driver=DictConfigFileYaml(file_path))
 
-    def __init__(self, defaults: dict = None, *, file_driver: DictConfigFile | None):
+    def __init__(self, defaults: dict | None = None, *, file_driver: DictConfigFile | None):
         super().__init__()
         self._file_driver = file_driver
         self._fields = Field.get_fields(type(self))
