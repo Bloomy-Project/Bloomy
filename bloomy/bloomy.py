@@ -171,12 +171,12 @@ class Bloomy(object):
                 except Exception as e:
                     log.exception("Exception in unload extension: %s", extension_name, exc_info=e)
 
-            if not bot.is_closed():
-                log.debug("Closing discord bot")
-                try:
-                    await bot.close()
-                except Exception as e:
-                    log.warning(f"Failed to close bot: {e}")
+            log.debug("Closing discord bot")
+            try:
+                await bot.close()
+            except Exception as e:
+                log.warning(f"Failed to close bot: {e}")
+
             bot.clear()
 
         del self.bot
