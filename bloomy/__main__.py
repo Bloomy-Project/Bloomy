@@ -7,7 +7,11 @@ async def main():
 
     loop = asyncio.get_running_loop()
     app = Bloomy(loop=loop)
-    app.setup_loggers(__package__, app.plugin_manager.plugins_dir.parts[0])
+    app.setup_loggers(
+        __package__,
+        app.plugin_manager.plugins_dir.parts[0],
+        discord_level=logging.ERROR,
+    )
 
     await app.init()
     try:

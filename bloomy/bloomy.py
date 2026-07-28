@@ -3,13 +3,15 @@ import signal
 from logging import getLogger
 from pathlib import Path
 
-import discord
+import discord.app_commands
 from discord.ext import commands
 
 from bloomy._logger import BloomyStreamHandler, BloomyFileHandler
 from bloomy.config import DictConfig
 from bloomy.database import DatabaseManager
 from bloomy.plugin import PluginManager
+from bloomy.ui._discord import hook_error_handlers, unhook_error_handlers
+from bloomy.util import traceback_format_simple, with_error
 
 log = getLogger(__name__)
 __all__ = [
@@ -25,6 +27,7 @@ class BloomyConfig(DictConfig):
     file_log_level: str = "info"
     command_prefix: str | None = None
     database_url: str = "sqlite+aiosqlite:///data/database.db"
+    replace_error_message: bool = True
 
     @property
     def owner_id(self) -> int | None:
@@ -46,6 +49,7 @@ class Bloomy(object):
         data_dir: str = "data/",
     ):
         Bloomy._inst = self  # singleton
+        hook_error_handlers()
         self.logs_dir = Path(logs_dir)
         self.config_file = Path(config_file)
         self.data_dir = Path(data_dir)
@@ -61,7 +65,10 @@ class Bloomy(object):
         # パスは init() 内で config.load_file() が呼ばれた後に正確に解決されます
         self.db = DatabaseManager()
 
-    def setup_loggers(self, *names: str, file_out=True):
+    def __del__(self):
+        unhook_error_handlers()
+
+    def setup_loggers(self, *names: str, file_out=True, discord_level: int | None = None):
         if self.log_stream_handler is None:
             self.log_stream_handler = BloomyStreamHandler()
 
@@ -76,6 +83,12 @@ class Bloomy(object):
             _log.addHandler(self.log_stream_handler)
             if file_out:
                 _log.addHandler(self.log_file_handler)
+
+        if discord_level is not None:
+            _log = getLogger("discord")
+            _log.setLevel(discord_level)
+            _log.addHandler(self.log_stream_handler)
+            _log.addHandler(self.log_file_handler)
 
     def update_logger_level(self):
         if handler := self.log_stream_handler:
@@ -101,7 +114,7 @@ class Bloomy(object):
             owner_ids=self.config.owner_ids,
             intents=discord.Intents.all(),
         )
-        self._event_handling(self.bot)
+        self.setup_bot(self.bot)
         log.debug("Loading plugins")
         await self.plugin_manager.load_plugins(self.bot)
 
@@ -183,8 +196,14 @@ class Bloomy(object):
 
         del self.bot
 
-    def _event_handling(self, bot: commands.Bot):
-        pass
+    def setup_bot(self, bot: commands.Bot):
+        _tree_on_error = bot.tree.on_error
+
+        async def on_error(interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
+            await _tree_on_error(interaction, error)
+            await self.handle_interaction_error("App Command", interaction, error)
+
+        bot.tree.on_error = on_error
 
     async def update_owners_cache(self):
         log.debug("Updating owners cache")
@@ -197,3 +216,93 @@ class Bloomy(object):
                     owner = None
             self.owners[owner_id] = owner
         return self.owners
+
+    async def handle_interaction_error(
+        self,
+        error_type: str,
+        interaction: discord.Interaction,
+        error: discord.app_commands.AppCommandError | Exception,
+    ):
+        r = interaction.response  # type: discord.InteractionResponse
+
+        if self.config.replace_error_message:
+            embed = discord.Embed(
+                description="内部エラーが発生しました。管理者にお問い合わせください。",
+                color=0xFF0000,
+            )
+
+            try:
+                if r.is_done():
+                    await interaction.edit_original_response(content=None, embed=embed, view=None)
+                else:
+                    await r.send_message(embed=embed, ephemeral=True)
+            except Exception as e:
+                log.warning("Exception in send user error message", exc_info=e)
+
+        try:
+            await self.report_error_to_owner(error_type, interaction, error)
+        except Exception as e:
+            log.warning("Exception in send owners error report", exc_info=e)
+
+    async def report_error_to_owner(
+        self,
+        error_type: str,
+        interaction: discord.Interaction,
+        error: discord.app_commands.AppCommandError | Exception,
+    ):
+        if not self.owners:
+            return
+
+        guild = interaction.guild
+        channel = interaction.channel
+        user = interaction.user
+        exc = error.original if isinstance(error, discord.app_commands.CommandInvokeError) else error
+
+        input_command = None
+        if isinstance(interaction.command, discord.app_commands.Command):
+            input_command = "/" + interaction.command.name
+            args = interaction.namespace.__dict__
+            if args:
+                args = ", ".join(f"{k}:{repr(v)}" for k, v in args.items())
+                input_command += f" {{{args}}}"
+
+        if isinstance(guild, discord.Guild):
+            jump_url = channel.jump_url
+            try:
+                res_message = await interaction.original_response()
+            except discord.HTTPException:
+                pass
+            else:
+                if not res_message.flags.ephemeral:
+                    jump_url = res_message.jump_url
+
+            location = f"[{guild} #{channel}]({jump_url})"
+            report = (f":warning: コマンド実行エラーです ({error_type})\n\n"
+                      f"> メッセージ: {str(exc)}\n"
+                      f"> 場所: {location}\n"
+                      f"> 実行者: {user}\n"
+                      f"> コマンド: `{input_command or 'N/A'}`")
+        else:
+            report = (f":warning: コマンド実行エラーです ({error_type})\n\n"
+                      f"> メッセージ: {str(exc)}\n"
+                      f"> 場所: @{user} チャンネル\n"
+                      f"> コマンド: `{input_command or 'N/A'}`")
+
+        require = "```py\n```"
+        split_trace = ""
+        trace = list(reversed(traceback_format_simple(exc).replace("```", "\\```").splitlines()))
+        line = trace.pop(0)
+        while 0 <= 2000 - len(split_trace + require + line + "\n"):
+            split_trace = line + "\n" + split_trace
+            if trace:
+                line = trace.pop(0)
+            else:
+                break
+
+        content = f"```py\n{split_trace}```"
+        embed = discord.Embed(description=report, color=0xFF0000)
+
+        for owner in self.owners.values():
+            if owner is not None:
+                task = self.loop.create_task(owner.send(content=content, embed=embed))
+                task.add_done_callback(with_error(log, lambda e: f"Failed to send to {owner}: {e}", exc_info=False))
