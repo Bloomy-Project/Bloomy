@@ -20,11 +20,17 @@ __all__ = [
 
 class BloomyConfig(DictConfig):
     token: str
-    owner_id: int | None
+    owner_ids: list[int]
     log_level: str = "debug"
     file_log_level: str = "info"
     command_prefix: str | None = None
     database_url: str = "sqlite+aiosqlite:///data/database.db"
+
+    @property
+    def owner_id(self) -> int | None:
+        if self.owner_ids:
+            return self.owner_ids[0]
+        return None
 
 
 class Bloomy(object):
@@ -92,7 +98,7 @@ class Bloomy(object):
 
         self.bot = commands.Bot(
             command_prefix=[self.config.command_prefix] if self.config.command_prefix else ["!"],
-            owner_ids=[self.config.owner_id] if self.config.owner_id else [],
+            owner_ids=self.config.owner_ids,
             intents=discord.Intents.all(),
         )
         self._event_handling(self.bot)
@@ -105,11 +111,7 @@ class Bloomy(object):
         await self.bot.wait_until_ready()
         log.info(f"Connected to Discord: {self.bot.user}")
 
-        try:
-            owners = await self.update_owners_cache()
-        except Exception as e:
-            log.warning(f"Exception in update_owners: {e}", exc_info=e)
-            owners = {self.config.owner_id: None}
+        owners = await self.update_owners_cache()
         log.info("Owners: %s", ", ".join([str(v or k) for k, v in owners.items()]))
 
         guilds = self.bot.guilds
@@ -187,11 +189,11 @@ class Bloomy(object):
     async def update_owners_cache(self):
         log.debug("Updating owners cache")
         self.owners.clear()
-        if owner_id := self.config.owner_id:
+        for owner_id in self.config.owner_ids:
             if not (owner := self.bot.get_user(owner_id)):
                 try:
                     owner = await self.bot.fetch_user(owner_id)
                 except discord.HTTPException:
-                    pass  # ignore
+                    owner = None
             self.owners[owner_id] = owner
         return self.owners
