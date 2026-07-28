@@ -1,9 +1,8 @@
 import inspect
 import io
-import typing
 from pathlib import Path
 from types import UnionType
-from typing import NamedTuple, Any, Self
+from typing import NamedTuple, Any, Self, Callable, get_origin, get_args
 
 import ruamel.yaml
 
@@ -31,7 +30,7 @@ class DictConfigFileYaml(DictConfigFile):
         self.path = Path(path)
         self._data = {}
 
-    def load_file(self, config: "DictConfig", fields: dict[str, Any], *, create_default_file=True):
+    def load_file(self, config: "DictConfig", fields: "dict[str, Field]", *, create_default_file=True):
         if self.path.is_file():
             with self.path.open("r", encoding="utf-8") as f:
                 self._data = self.yaml.load(f) or {}  # type: dict
@@ -49,13 +48,13 @@ class DictConfigFileYaml(DictConfigFile):
             except KeyError:
                 if field.required:
                     _invalid_values.add(key)
-                value = field.default
+                value = field.default_value()
                 _save_file = True
             except TypeError:
                 _invalid_values.add(key)
                 continue
 
-            _new_data[key] = value
+            _new_data[key] = field.copy_value(value)
 
         config.clear()
         config.update(_new_data)
@@ -66,7 +65,7 @@ class DictConfigFileYaml(DictConfigFile):
         if _invalid_values:
             raise KeyError("Invalid configuration values: " + ", ".join(_invalid_values))
 
-    def save_file(self, config: "DictConfig", fields: dict[str, Any], *, ignore_no_set=True):
+    def save_file(self, config: "DictConfig", fields: "dict[str, Field]", *, ignore_no_set=True):
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
         for key, field in fields.items():
@@ -76,7 +75,7 @@ class DictConfigFileYaml(DictConfigFile):
                 if field.required:
                     if not ignore_no_set:
                         raise
-                value = field.default
+                value = field.default_value()
             self._data[key] = value
 
         with io.StringIO() as temp:
@@ -91,50 +90,74 @@ class Field(NamedTuple):
     name: str
     annotation: Any
     required: bool
-    default: Any | None
+    default: Any | Callable[[Any | None], Any]
 
     @classmethod
     def get_fields(cls, config_cls):
         fields = {}  # type: dict[str, Field]
         for name, anno in inspect.get_annotations(config_cls).items():
 
-            if typing.get_origin(anno) is UnionType:
-                disallow_types = set(typing.get_args(anno))
+            if get_origin(anno) is UnionType:
+                disallow_types = set(get_args(anno))
             else:
                 disallow_types = {anno}
 
-            # for _allow in (str, bool, float, int, type(None), None, DictConfig):
             for _allow in (str, bool, float, int, type(None), None):
                 disallow_types.discard(_allow)
 
-            # for _type in list(disallow_types):
-            #     if issubclass(_type, DictConfig):
-            #         disallow_types.discard(_type)
+            default = getattr(config_cls, name, None)
 
-            if disallow_types:
+            if anno is list or get_origin(anno) is list:
+                disallow_types.discard(anno)
+
+                if default is None:
+                    default = list()
+
+                if not isinstance(default, list):
+                    raise TypeError("Invalid default value: {} (not list) in {!r}".format(type(default), name))
+
+                _default = cls._create_list_copy(default)
+                fields[name] = cls(name, list, False, _default)
+                continue
+
+            elif disallow_types:
                 raise TypeError("Unsupported types: " + ", ".join(map(str, disallow_types)) + f" in {name!r}")
 
-            default = getattr(config_cls, name, None)
             required = not (isinstance(None, anno) or hasattr(config_cls, name))
             fields[name] = cls(name, anno, required, default)
+
         return fields
 
     def check_value_type(self, value: Any):
         if value is None:
             if self.required:
                 raise TypeError(f"Value {self.name!r} is not optional")
-            value = self.default
+            value = self.default_value()
 
         if not isinstance(value, self.annotation):
             raise TypeError(f"Expected {self.annotation} by {self.name!r}")
 
         return value
 
+    def default_value(self):
+        if callable(self.default):
+            return self.default(None)
+        return self.default
+
+    def copy_value(self, value):
+        if callable(self.default):
+            return self.default(value)
+        return value
+
+    @staticmethod
+    def _create_list_copy(default):
+        return lambda v: list(default if v is None else v)
+
 
 class DictConfig(dict):
     """
     型アノテーションによる型チェックとデフォルト値を適用できるシンプルなConfigurationクラス
-    現在は str, bool, float, int, None のみ対応 (ネスト未実装 ※現在は)
+    現在は str, bool, float, int, list, None のみ対応 (ネストや子タイプチェックに非対応 ※現在は)
 
     # Example
     class MyConfig(DictConfig):
@@ -190,7 +213,7 @@ class DictConfig(dict):
             except AttributeError:
                 raise AttributeError(f"Unknown config key: {item!r}") from None
 
-        return field.check_value_type(self.get(field.name, field.default))
+        return field.check_value_type(self.get(field.name, field.default_value()))
 
     def __setattr__(self, key, value):
         try:
