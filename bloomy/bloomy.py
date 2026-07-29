@@ -28,6 +28,7 @@ class BloomyConfig(DictConfig):
     command_prefix: str | None = None
     database_url: str = "sqlite+aiosqlite:///data/database.db"
     replace_error_message: bool = True
+    app_sync_on_startup = True
 
     @property
     def owner_id(self) -> int | None:
@@ -136,13 +137,14 @@ class Bloomy(object):
             log.info("  No joined guilds")
         log.info("")
 
-        sync_task = self.loop.create_task(self.bot.tree.sync())
-        try:
-            await asyncio.wait_for(asyncio.shield(sync_task), timeout=3)
-        except asyncio.TimeoutError:
-            log.warning("Syncing application commands... (waiting)")
-        await sync_task
-        log.debug("Synced application commands")
+        if self.config.app_sync_on_startup:
+            sync_task = self.loop.create_task(self.bot.tree.sync())
+            try:
+                await asyncio.wait_for(asyncio.shield(sync_task), timeout=3)
+            except asyncio.TimeoutError:
+                log.warning("Syncing application commands... (waiting)")
+            await sync_task
+            log.debug("Synced application commands")
 
     async def run(self):
         try:
