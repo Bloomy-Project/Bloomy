@@ -28,7 +28,7 @@ class BloomyConfig(DictConfig):
     command_prefix: str | None = None
     database_url: str = "sqlite+aiosqlite:///data/database.db"
     replace_error_message: bool = True
-    app_sync_on_startup = True
+    app_sync_on_startup: bool = True
 
     @property
     def owner_id(self) -> int | None:
